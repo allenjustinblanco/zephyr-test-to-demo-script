@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zephyr Test to Demo Script Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        
+        .test-description {
+            background-color: #f1f8ff;
+            border: 1px solid #c8e1ff;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 15px 0;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        
+        textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        #output {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            white-space: pre-wrap;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+        }
+        
+        .copy-btn {
+            background-color: #27ae60;
+        }
+        
+        .copy-btn:hover {
+            background-color: #219653;
+        }
+        
+        .expected-result {
+            color: #2980b9;
+            margin-left: 20px;
+            font-style: italic;
+            border-left: 3px solid #3498db;
+            padding-left: 10px;
+        }
+        
+        .test-data {
+            color: #8e44ad;
+            margin-left: 20px;
+            font-style: italic;
+            border-left: 3px solid #9b59b6;
+            padding-left: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Zephyr Test to Demo Script Converter</h1>
+    
+    <div>
+        <h3>Input: Paste Zephyr Test Content</h3>
+        <textarea id="input" placeholder="Paste your Zephyr test content here..."></textarea>
+    </div>
+    
+    <div class="controls">
+        <button id="convert">Convert to Demo Script</button>
+        <button id="copy" class="copy-btn">Copy Output</button>
+    </div>
+    
+    <div>
+        <h3>Output: Demo Script</h3>
+        <div id="output">Your converted demo script will appear here...</div>
+    </div>
+    
+    <script>
+        document.getElementById('convert').addEventListener('click', function() {
+            const input = document.getElementById('input').value.trim();
+            const output = document.getElementById('output');
+            
+            if (!input) {
+                output.textContent = "Please paste some Zephyr test content first.";
+                return;
+            }
+            
+            // Split the input by lines and process
+            const lines = input.split(/\r?\n/);
+            let steps = [];
+            let stepNumber = 1;
+            
+            // List of placeholder texts to filter out
+            const placeholdersToFilter = [
+                "Click to type the test data",
+                "Click to type test steps",
+                "Click to type expected result", 
+                "Click to type",
+                "Type your step here",
+                "Type expected result here"
+            ];
+            
+            // Keywords that indicate section headers
+            const expectedResultHeaders = [
+                "Expected Result",
+                "Expected Results",
+                "Expected:",
+                "Expected Output:"
+            ];
+            
+            const testDataHeaders = [
+                "Test Data",
+                "Test Data:",
+                "Data:",
+                "Input Data:"
+            ];
+            
+            // Pattern for test description - look for these common patterns in Zephyr tests
+            const descriptionPatterns = [
+                // Standard UX patterns
+                /(?:UX[\s\-]+.*?)(?=\s*(?:Save|Details|Execution|Test Script|Traceability|\d\.\d|\d+\.))/is,
+                
+                // Inventory patterns
+                /(?:Inventory[\s\-]+.*?)(?=\s*(?:Save|Details|Execution|Test Script|Traceability|\d\.\d|\d+\.))/is,
+                
+                // "As a user" patterns
+                /(?:As an?.*?(?:user|admin).*?)(?=\s*(?:Save|Details|Execution|Test Script|Traceability|\d\.\d|\d+\.))/is,
+                
+                // "I want" patterns that might not have "As a user" prefix
+                /(?:I want.*?)(?=\s*(?:Save|Details|Execution|Test Script|Traceability|\d\.\d|\d+\.))/is
+            ];
+            
+            // Patterns to clean up prefixes from test case names
+            const prefixPatterns = [
+                /^.*?Test Cases[A-Z0-9\-]+ \(\d+\.\d+\)\s*/i,
+                /^.*?Test Cases\s*/i,
+                /^BES-[A-Z0-9\-]+\s*/i,
+                /^ACES-[A-Z0-9\-]+\s*/i
+            ];
+            
+            // Patterns that indicate metadata/attachments to filter out
+            const metadataPatterns = [
+                "Attachments",
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".pdf",
+                /\d{2}\/[A-Za-z]{3}\/\d{4}/,  // Date pattern like 01/Apr/2025
+                /\d{1,2}:\d{2}\s[ap]m/        // Time pattern like 9:22 am
+            ];
+            
+            let currentStep = "";
+            let currentExpectedResult = "";
+            let currentTestData = "";
+            let testDescription = "";
+            let processingExpectedResult = false;
+            let processingTestData = false;
+            let expectingResultContent = false;
+            let expectingTestDataContent = false;
+            
+            // First pass - try to find the test description
+            // Look at the first few lines combined to handle multi-line descriptions
+            const firstLinesText = lines.slice(0, Math.min(20, lines.length)).join("\n");
+            
+            // Try to find description matching our patterns
+            for (const pattern of descriptionPatterns) {
+                const match = firstLinesText.match(pattern);
+                if (match) {
+                    testDescription = match[0].trim();
+                    break;
+                }
+            }
+            
+            // If no match found with the patterns, try to look for text after the Test Cases prefix
+            if (!testDescription) {
+                let processedText = firstLinesText;
+                
+                // Remove known prefixes to get to the actual description
+                for (const pattern of prefixPatterns) {
+                    processedText = processedText.replace(pattern, '');
+                    // If we removed something, break to avoid over-processing
+                    if (processedText !== firstLinesText) {
+                        break;
+                    }
+                }
+                
+                // Split by common terminators and take the first part
+                const parts = processedText.split(/(?:Save|\d\.\d|Details|Test Script|Execution|Traceability|Attachments|Comments|History|Type:)/i);
+                if (parts.length > 0) {
+                    const candidateDesc = parts[0].trim();
+                    // Only use if it looks like a real description (not too short)
+                    if (candidateDesc.length > 15) {
+                        testDescription = candidateDesc;
+                    }
+                }
+            }
+            
+            // Clean up the description
+            if (testDescription) {
+                // Clean up excess whitespace
+                testDescription = testDescription.replace(/\s+/g, ' ');
+                
+                // Remove version numbers if they're still in the description
+                testDescription = testDescription.replace(/\(\d+\.\d+\)\s*$/, '');
+                
+                // Remove any test ID patterns
+                testDescription = testDescription.replace(/\b[A-Z]+-T\d+\b/g, '');
+            }
+            
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                
+                // Skip empty lines
+                if (!line) continue;
+                
+                // Check if this line contains a placeholder to filter
+                let isPlaceholder = false;
+                for (const placeholder of placeholdersToFilter) {
+                    if (line.toLowerCase().includes(placeholder.toLowerCase())) {
+                        isPlaceholder = true;
+                        break;
+                    }
+                }
+                
+                // Skip placeholder lines
+                if (isPlaceholder) continue;
+                
+                // Check if this line contains metadata to filter out
+                let containsMetadata = false;
+                for (const pattern of metadataPatterns) {
+                    if (typeof pattern === 'string') {
+                        if (line.includes(pattern)) {
+                            containsMetadata = true;
+                            break;
+                        }
+                    } else if (pattern instanceof RegExp) {
+                        if (pattern.test(line)) {
+                            containsMetadata = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // If line contains metadata, stop processing current section
+                if (containsMetadata) {
+                    expectingResultContent = false;
+                    expectingTestDataContent = false;
+                    continue;
+                }
+                
+                // If line contains "Attachments" specifically, skip this line
+                if (line.includes("Attachments")) {
+                    continue;
+                }
+                
+                // Check if this line is a Test Data header
+                let isTestDataHeader = false;
+                for (const header of testDataHeaders) {
+                    if (line.toLowerCase() === header.toLowerCase()) {
+                        isTestDataHeader = true;
+                        expectingTestDataContent = true;
+                        currentTestData = ""; // Reset current test data
+                        break;
+                    }
+                }
+                
+                if (isTestDataHeader) {
+                    continue;
+                }
+                
+                // Check if this line is an Expected Result header
+                let isExpectedResultHeader = false;
+                for (const header of expectedResultHeaders) {
+                    if (line.toLowerCase() === header.toLowerCase()) {
+                        isExpectedResultHeader = true;
+                        expectingResultContent = true;
+                        expectingTestDataContent = false;
+                        break;
+                    }
+                }
+                
+                // If this is an Expected Result header, skip this line and expect content on next line(s)
+                if (isExpectedResultHeader) {
+                    continue;
+                }
+                
+                // If we're expecting test data content
+                if (expectingTestDataContent) {
+                    // If the next line starts an expected result section or a new step, stop processing test data
+                    if (isExpectedResultHeader || 
+                        line.startsWith("Step") || 
+                        /^\d+[\.\)]/.test(line) || 
+                        line.toLowerCase().includes("click") || 
+                        line.toLowerCase().includes("select") || 
+                        line.toLowerCase().includes("enter") || 
+                        line.toLowerCase().includes("verify") || 
+                        line.toLowerCase().includes("log in") ||
+                        line.includes("TEST COMPLETED")) {
+                        
+                        expectingTestDataContent = false;
+                        
+                    } else {
+                        // This must be test data content
+                        
+                        // If line contains metadata, truncate it
+                        const attachmentIndex = line.indexOf("Attachments");
+                        if (attachmentIndex > 0) {
+                            line = line.substring(0, attachmentIndex).trim();
+                        }
+                        
+                        const stepPattern = /\s+\d+\s+Step\s*$/;
+                        const stepMatch = line.match(stepPattern);
+                        if (stepMatch) {
+                            line = line.substring(0, stepMatch.index).trim();
+                        }
+                        
+                        if (currentTestData) {
+                            currentTestData += " " + line;
+                        } else {
+                            currentTestData = line;
+                        }
+                        continue;
+                    }
+                }
+                
+                // If we're expecting content after an "Expected Result" header
+                if (expectingResultContent) {
+                    // If the next line starts a new step, stop processing expected result
+                    if ((line.includes("Click") && !line.includes("Click to type")) || 
+                        line.includes("Select") || 
+                        line.includes("Enter") || 
+                        line.includes("Verify") || 
+                        line.toLowerCase().includes("log in") ||
+                        line.includes("TEST COMPLETED")) {
+                        
+                        expectingResultContent = false;
+                        
+                        // If we have a completed step, add it
+                        if (currentStep) {
+                            let stepOutput = `${stepNumber}. ${currentStep}`;
+                            
+                            // Add test data if available for this step
+                            if (currentTestData) {
+                                stepOutput += `<div class="test-data">${currentTestData}</div>`;
+                            }
+                            
+                            // Add expected result if available
+                            if (currentExpectedResult) {
+                                stepOutput += `<div class="expected-result">${currentExpectedResult}</div>`;
+                            }
+                            
+                            steps.push(stepOutput);
+                            stepNumber++;
+                            currentStep = "";
+                            currentExpectedResult = "";
+                            // Don't reset currentTestData here as it might be needed for subsequent steps
+                        }
+                    } else {
+                        // Check if this line starts with Step or a digit followed by period/parenthesis
+                        if (line.startsWith("Step") || /^\d+[\.\)]/.test(line)) {
+                            expectingResultContent = false;
+                        } else {
+                            // This must be expected result content
+                            
+                            // If line contains metadata or numbers like "Step X" at the end, truncate it
+                            const attachmentIndex = line.indexOf("Attachments");
+                            if (attachmentIndex > 0) {
+                                line = line.substring(0, attachmentIndex).trim();
+                            }
+                            
+                            const stepPattern = /\s+\d+\s+Step\s*$/;
+                            const stepMatch = line.match(stepPattern);
+                            if (stepMatch) {
+                                line = line.substring(0, stepMatch.index).trim();
+                            }
+                            
+                            if (currentExpectedResult) {
+                                currentExpectedResult += " " + line;
+                            } else {
+                                currentExpectedResult = line;
+                            }
+                            continue;
+                        }
+                    }
+                }
+                
+                // Check if this line might be part of a test step
+                if (line.includes("Click") || 
+                    line.includes("Select") || 
+                    line.includes("Enter") || 
+                    line.includes("Verify") || 
+                    line.includes("TEST COMPLETED") ||
+                    line.toLowerCase().includes("log in")) {
+                    
+                    // If we have a completed step, add it
+                    if (currentStep) {
+                        let stepOutput = `${stepNumber}. ${currentStep}`;
+                        
+                        // Add test data if available for this step
+                        if (currentTestData) {
+                            stepOutput += `<div class="test-data">${currentTestData}</div>`;
+                        }
+                        
+                        // Add expected result if available
+                        if (currentExpectedResult) {
+                            stepOutput += `<div class="expected-result">${currentExpectedResult}</div>`;
+                        }
+                        
+                        steps.push(stepOutput);
+                        stepNumber++;
+                        currentStep = "";
+                        currentExpectedResult = "";
+                        // Don't reset currentTestData here as it might be needed for subsequent steps
+                    }
+                    
+                    // Format the step with bold elements
+                    let formattedStep = line;
+                    
+                    // Find words or phrases to bold (between ** markers)
+                    formattedStep = formattedStep.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+                    
+                    currentStep = formattedStep;
+                    
+                    // If this is the TEST COMPLETED line, add it immediately
+                    if (line.includes("TEST COMPLETED")) {
+                        let finalStep = `${stepNumber}. ${formattedStep}`;
+                        
+                        // Add test data if available for this final step
+                        if (currentTestData) {
+                            finalStep += `<div class="test-data">${currentTestData}</div>`;
+                        }
+                        
+                        steps.push(finalStep);
+                        stepNumber++;
+                        currentStep = "";
+                        currentTestData = "";
+                    }
+                }
+            }
+            
+            // Add the last step if there's one pending
+            if (currentStep) {
+                let stepOutput = `${stepNumber}. ${currentStep}`;
+                
+                // Add test data if available for the last step
+                if (currentTestData) {
+                    stepOutput += `<div class="test-data">${currentTestData}</div>`;
+                }
+                
+                if (currentExpectedResult) {
+                    stepOutput += `<div class="expected-result">${currentExpectedResult}</div>`;
+                }
+                
+                steps.push(stepOutput);
+                stepNumber++;
+            }
+            
+            // Check if the last step is already "TEST COMPLETE"
+            let hasTestCompleteStep = false;
+            for (let i = 0; i < steps.length; i++) {
+                if (steps[i].includes("TEST COMPLETE") || steps[i].includes("TEST COMPLETED")) {
+                    hasTestCompleteStep = true;
+                    // If it exists but is not the last step, remove it so we can add it at the end
+                    if (i < steps.length - 1) {
+                        steps.splice(i, 1);
+                        hasTestCompleteStep = false;
+                        break;
+                    }
+                }
+            }
+            
+            // If no "TEST COMPLETE" step found, add one
+            if (!hasTestCompleteStep) {
+                steps.push(`${stepNumber}. TEST COMPLETE`);
+            }
+            
+            // Join the steps with line breaks and add description if found
+            let result = "";
+            
+            // Add test description if found
+            if (testDescription) {
+                result += `<div class="test-description">${testDescription}</div>\n`;
+            }
+            
+            result += steps.join("\n");
+            
+            // Display the result
+            output.innerHTML = result;
+        });
+        
+        document.getElementById('copy').addEventListener('click', function() {
+            const output = document.getElementById('output');
+            
+            // First, we format the content for display in the textarea
+            // We'll create a temporary div element with the formatted content
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = output.innerHTML;
+            
+            // Create a selection range and select the content
+            const selection = window.getSelection();
+            const range = document.createRange();
+            
+            // Clear any existing selection
+            selection.removeAllRanges();
+            
+            // Set the temporary div content
+            document.body.appendChild(tempDiv);
+            
+            // Select the content
+            range.selectNodeContents(tempDiv);
+            selection.addRange(range);
+            
+            // Execute the copy command on the formatted HTML selection
+            document.execCommand('copy');
+            
+            // Clean up
+            selection.removeAllRanges();
+            document.body.removeChild(tempDiv);
+            
+            alert('Output copied to clipboard! Ready to paste into Google Docs.');
+        });
+    </script>
+</body>
+</html>
