@@ -6,7 +6,7 @@ A simple tool to quickly convert **Zephyr test scripts** into a clean, demo-read
 
 ## 🚀 Live Demo
 
-[![Netlify Status](https://api.netlify.com/api/v1/badges/your-netlify-badge-id/deploy-status)](https://zephyr-script.netlify.app/)
+[Visit Site](https://zephyr-script.netlify.app/)
 
 
 ---
